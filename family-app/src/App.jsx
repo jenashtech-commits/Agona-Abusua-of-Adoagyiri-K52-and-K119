@@ -6,11 +6,19 @@ import {
   addPayment,
   uploadMemberPhoto,
   resizeToSquareDataUrl,
-  countMembers,
   verifyPayment,
-  checkAdminPin,
   subscribeToChanges,
+  signInAdmin,
+  signOutAdmin,
+  hasAdminSession,
+  parseMembersSpreadsheet,
+  importMembers,
+  downloadMemberTemplate,
+  exportReportToExcel,
 } from "./lib/api.js";
+import Badge3D from "./components/Badge3D.jsx";
+import Avatar from "./components/Avatar.jsx";
+import SplashScreen from "./components/SplashScreen.jsx";
 
 /* ---------- design tokens ---------- */
 const GOLD = "#C9A227";
@@ -18,7 +26,6 @@ const GOLD_LIGHT = "#E8C766";
 const MAROON = "#5A1D1D";
 const MAROON_DARK = "#3C1414";
 const GREEN = "#1F5C3F";
-const BLUE = "#1F3F6B";
 const PARCHMENT = "#F4EBD6";
 const INK = "#241914";
 
@@ -27,46 +34,14 @@ const fmtGHS = (n) =>
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-/* ---------- SVG family badge (original rendition inspired by the crest's motifs) ---------- */
-function Badge({ size = 100 }) {
-  const id = "badge";
-  return (
-    <svg viewBox="0 0 200 200" width={size} height={size} role="img" aria-label="Agona Abusua Adoagyiri badge">
-      <defs>
-        <path id={`${id}-top`} d="M 30 100 A 70 70 0 0 1 170 100" />
-        <path id={`${id}-bot`} d="M 40 150 A 62 62 0 0 0 160 150" />
-      </defs>
-      <circle cx="100" cy="100" r="96" fill={MAROON_DARK} stroke={GOLD} strokeWidth="4" />
-      <circle cx="100" cy="100" r="80" fill="none" stroke={GOLD} strokeWidth="1.5" />
-      <text fill={GOLD_LIGHT} fontSize="15" fontFamily="Cinzel, serif" letterSpacing="2">
-        <textPath href={`#${id}-top`} startOffset="50%" textAnchor="middle">AGONA ABUSUA</textPath>
-      </text>
-      <text fill={GOLD_LIGHT} fontSize="13" fontFamily="Cinzel, serif" letterSpacing="2">
-        <textPath href={`#${id}-bot`} startOffset="50%" textAnchor="middle">ADOAGYIRI</textPath>
-      </text>
-      <circle cx="27" cy="100" r="3" fill={GOLD} />
-      <circle cx="173" cy="100" r="3" fill={GOLD} />
-      <circle cx="85" cy="80" r="24" fill="none" stroke={GREEN} strokeWidth="5" />
-      <circle cx="115" cy="80" r="24" fill="none" stroke={BLUE} strokeWidth="5" />
-      <circle cx="85" cy="80" r="24" fill="none" stroke={GOLD} strokeWidth="1" />
-      <circle cx="115" cy="80" r="24" fill="none" stroke={GOLD} strokeWidth="1" />
-      <g transform="translate(100,140)">
-        <path d="M -30 8 Q -10 -18 20 -14 Q 40 -12 46 -26 Q 34 -18 20 -18 Q 36 -30 38 -42 Q 22 -28 8 -22 Q -2 -18 -8 -8 Z" fill={GOLD} />
-        <circle cx="-24" cy="0" r="3.4" fill={MAROON_DARK} />
-        <line x1="-30" y1="8" x2="-30" y2="24" stroke={GOLD} strokeWidth="3" />
-        <circle cx="-30" cy="30" r="6" fill="none" stroke={GOLD} strokeWidth="3" />
-      </g>
-    </svg>
-  );
-}
-
 /* ---------- generic UI atoms ---------- */
-function Section({ title, children }) {
+function Section({ title, children, right }) {
   return (
-    <div style={{ background: PARCHMENT, border: `1px solid ${GOLD}`, borderRadius: 4, padding: "20px 18px", marginBottom: 16 }}>
-      <h2 style={{ fontFamily: "Cinzel, serif", fontSize: 17, color: MAROON, margin: "0 0 14px", fontWeight: 600, borderBottom: `1px solid ${GOLD}`, paddingBottom: 8 }}>
-        {title}
-      </h2>
+    <div style={{ background: PARCHMENT, border: `1px solid ${GOLD}`, borderRadius: 6, padding: "20px 18px", marginBottom: 16, boxShadow: "0 4px 14px rgba(60,20,20,0.10)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${GOLD}`, paddingBottom: 8, marginBottom: 14 }}>
+        <h2 style={{ fontFamily: "Cinzel, serif", fontSize: 17, color: MAROON, margin: 0, fontWeight: 600 }}>{title}</h2>
+        {right}
+      </div>
       {children}
     </div>
   );
@@ -88,7 +63,7 @@ const inputStyle = {
   boxSizing: "border-box",
   padding: "9px 10px",
   border: `1px solid #C7B98E`,
-  borderRadius: 3,
+  borderRadius: 4,
   fontSize: 14,
   background: "#fff",
   color: INK,
@@ -96,22 +71,23 @@ const inputStyle = {
 };
 
 const btnPrimary = {
-  background: MAROON,
+  background: `linear-gradient(180deg, ${MAROON} 0%, ${MAROON_DARK} 100%)`,
   color: GOLD_LIGHT,
   border: `1px solid ${MAROON_DARK}`,
-  borderRadius: 3,
+  borderRadius: 4,
   padding: "10px 20px",
   fontSize: 14,
   fontWeight: 600,
   cursor: "pointer",
   fontFamily: "'Work Sans', sans-serif",
+  boxShadow: "0 2px 8px rgba(90,29,29,0.35)",
 };
 
 const btnGhost = {
   background: "transparent",
   color: MAROON,
   border: `1px solid ${MAROON}`,
-  borderRadius: 3,
+  borderRadius: 4,
   padding: "8px 14px",
   fontSize: 13,
   fontWeight: 600,
@@ -133,6 +109,16 @@ function StatusPill({ status }) {
   );
 }
 
+function SkeletonRows({ count = 3, height = 54 }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="skeleton" style={{ height }} />
+      ))}
+    </div>
+  );
+}
+
 /* ---------- main app ---------- */
 export default function App() {
   const [tab, setTab] = useState("register");
@@ -141,10 +127,13 @@ export default function App() {
   const [dues, setDues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [showSplash, setShowSplash] = useState(true);
+  const [live, setLive] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const showToast = (msg) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3200);
+    setTimeout(() => setToast(null), 3400);
   };
 
   const loadAll = useCallback(async () => {
@@ -160,8 +149,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadAll();
-    const unsubscribe = subscribeToChanges(() => loadAll());
+    const start = Date.now();
+    loadAll().then(() => {
+      const elapsed = Date.now() - start;
+      const wait = Math.max(0, 1400 - elapsed);
+      setTimeout(() => setShowSplash(false), wait);
+    });
+    const unsubscribe = subscribeToChanges(
+      () => loadAll(),
+      (status) => setLive(status === "SUBSCRIBED")
+    );
+    hasAdminSession().then(setIsAdmin);
     return unsubscribe;
   }, [loadAll]);
 
@@ -171,17 +169,24 @@ export default function App() {
     ["dues", "Pay dues"],
     ["birthdays", "Birthdays"],
     ["flyer", "Birthday flyer"],
-    ["admin", "Admin"],
+    ["admin", isAdmin ? "Admin" : "Admin \u{1F512}"],
   ];
 
   return (
     <div style={{ fontFamily: "'Work Sans', sans-serif", background: "#EDE3C8", minHeight: "100vh" }}>
-      <header style={{ background: MAROON, padding: "26px 16px 22px", textAlign: "center", borderBottom: `4px solid ${GOLD}` }}>
-        <Badge size={88} />
+      <SplashScreen visible={showSplash} />
+
+      <header style={{ position: "relative", overflow: "hidden", background: `linear-gradient(160deg, ${MAROON} 0%, ${MAROON_DARK} 100%)`, padding: "26px 16px 22px", textAlign: "center", borderBottom: `4px solid ${GOLD}` }}>
+        <div className="header-sheen" />
+        <Badge3D size={88} spinSeconds={18} />
         <h1 style={{ fontFamily: "Cinzel, serif", color: GOLD_LIGHT, fontSize: 22, margin: "10px 0 2px", letterSpacing: 1 }}>
           Agona Abusua Adoagyiri
         </h1>
-        <p style={{ color: "#E4D2A8", fontSize: 13, margin: 0 }}>Membership · Donations · Dues</p>
+        <p style={{ color: "#E4D2A8", fontSize: 13, margin: "0 0 6px" }}>Membership · Donations · Dues</p>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: live ? "#9FE8BE" : "#C9B98E" }}>
+          <span className="live-dot" style={{ background: live ? "#4EC982" : "#8A7A50", animationPlayState: live ? "running" : "paused" }} />
+          {live ? "Live — updates in real time" : "Connecting…"}
+        </div>
       </header>
 
       <nav style={{ display: "flex", flexWrap: "wrap", background: MAROON_DARK, borderBottom: `1px solid ${GOLD}` }}>
@@ -210,23 +215,31 @@ export default function App() {
 
       <main style={{ maxWidth: 720, margin: "0 auto", padding: "18px 14px 40px" }}>
         {loading ? (
-          <p style={{ textAlign: "center", color: MAROON, padding: 40 }}>Loading family records…</p>
+          <SkeletonRows count={4} height={64} />
         ) : (
-          <>
+          <div key={tab} className="tab-panel">
             {tab === "register" && <RegisterTab refresh={loadAll} showToast={showToast} />}
             {tab === "donate" && <PaymentTab kind="donations" title="Make a donation" members={members} refresh={loadAll} showToast={showToast} />}
             {tab === "dues" && <PaymentTab kind="dues" title="Pay your dues" members={members} refresh={loadAll} showToast={showToast} />}
             {tab === "birthdays" && <BirthdaysTab members={members} />}
             {tab === "flyer" && <FlyerTab members={members} />}
             {tab === "admin" && (
-              <AdminTab members={members} donations={donations} dues={dues} refresh={loadAll} showToast={showToast} />
+              <AdminTab
+                members={members}
+                donations={donations}
+                dues={dues}
+                refresh={loadAll}
+                showToast={showToast}
+                isAdmin={isAdmin}
+                setIsAdmin={setIsAdmin}
+              />
             )}
-          </>
+          </div>
         )}
       </main>
 
       {toast && (
-        <div style={{ position: "fixed", left: "50%", bottom: 20, transform: "translateX(-50%)", background: INK, color: GOLD_LIGHT, padding: "10px 18px", borderRadius: 4, fontSize: 13, maxWidth: "90%", textAlign: "center", boxShadow: "0 2px 10px rgba(0,0,0,0.3)", zIndex: 50 }}>
+        <div className="toast-pop" style={{ position: "fixed", left: "50%", bottom: 20, transform: "translateX(-50%)", background: INK, color: GOLD_LIGHT, padding: "10px 18px", borderRadius: 4, fontSize: 13, maxWidth: "90%", textAlign: "center", boxShadow: "0 4px 16px rgba(0,0,0,0.35)", zIndex: 50 }}>
           {toast}
         </div>
       )}
@@ -234,7 +247,7 @@ export default function App() {
   );
 }
 
-/* ---------- Register ---------- */
+/* ---------- Register (general member self-registration — no login needed) ---------- */
 function RegisterTab({ refresh, showToast }) {
   const [form, setForm] = useState({ name: "", phone: "", gender: "", dob: "", residence: "", role: "" });
   const [photoFile, setPhotoFile] = useState(null);
@@ -275,10 +288,7 @@ function RegisterTab({ refresh, showToast }) {
     setSaving(true);
     try {
       const photoUrl = await uploadMemberPhoto(photoFile);
-      const existing = await countMembers();
-      const memberNo = "AAA-" + String(existing + 1).padStart(4, "0");
-      await addMember({
-        member_no: memberNo,
+      const created = await addMember({
         name: form.name,
         phone: form.phone,
         gender: form.gender,
@@ -287,7 +297,7 @@ function RegisterTab({ refresh, showToast }) {
         role: form.role,
         photo_url: photoUrl,
       });
-      showToast(`Welcome, ${form.name}! Membership no. ${memberNo} registered.`);
+      showToast(`Welcome, ${form.name}! Membership no. ${created.member_no} registered.`);
       setForm({ name: "", phone: "", gender: "", dob: "", residence: "", role: "" });
       setPhotoFile(null);
       setPreview(null);
@@ -300,9 +310,9 @@ function RegisterTab({ refresh, showToast }) {
   };
 
   return (
-    <Section title="Membership registration">
+    <Section title="General member registration">
       <p style={{ fontSize: 13, color: "#5A4A2E", marginTop: -6, marginBottom: 16 }}>
-        This registry is shared with everyone using this app, so family officers can see who has joined. A profile photo is required.
+        Open to every family member — no login needed. This registry is shared with everyone using this app. A profile photo is required.
       </p>
       <form onSubmit={submit}>
         <Field label="Full name" required>
@@ -460,7 +470,7 @@ function BirthdaysTab({ members }) {
   return (
     <>
       {today.length > 0 && (
-        <div style={{ background: GOLD, border: `1px solid ${MAROON}`, borderRadius: 4, padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ background: GOLD, border: `1px solid ${MAROON}`, borderRadius: 6, padding: "14px 16px", marginBottom: 16, boxShadow: "0 4px 14px rgba(201,162,39,0.35)" }}>
           <strong style={{ color: MAROON_DARK, fontSize: 14 }}>
             Today's birthday{today.length > 1 ? "s" : ""}: {today.map((x) => x.m.name).join(", ")}
           </strong>
@@ -473,7 +483,7 @@ function BirthdaysTab({ members }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {rest.map(({ m, info }) => (
               <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "1px solid #E0D4AE", borderRadius: 4, padding: "10px 12px" }}>
-                <img src={m.photo_url} alt={m.name} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: `1px solid ${GOLD}` }} />
+                <Avatar name={m.name} url={m.photo_url} size={44} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14, color: INK }}>{m.name}</div>
                   <div style={{ fontSize: 12, color: "#5A4A2E" }}>
@@ -493,6 +503,11 @@ function BirthdaysTab({ members }) {
 }
 
 /* ---------- Birthday flyer ---------- */
+function initialsOf(name) {
+  const parts = String(name || "?").trim().split(/\s+/);
+  return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() || "").join("") || "?";
+}
+
 function FlyerTab({ members }) {
   const withDob = members.filter((m) => m.dob);
   const [memberId, setMemberId] = useState("");
@@ -536,7 +551,7 @@ function FlyerTab({ members }) {
   };
 
   useEffect(() => {
-    if (!member || !canvasRef.current || !member.photo_url) return;
+    if (!member || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const size = 900;
     canvas.width = size;
@@ -561,12 +576,22 @@ function FlyerTab({ members }) {
       ctx.beginPath();
       ctx.arc(cx, cy, photoR, 0, Math.PI * 2);
       ctx.closePath();
-      ctx.fillStyle = "#000";
-      ctx.fill();
-      ctx.save();
-      ctx.clip();
-      ctx.drawImage(photoImg, cx - photoR, cy - photoR, photoR * 2, photoR * 2);
-      ctx.restore();
+      if (photoImg) {
+        ctx.fillStyle = "#000";
+        ctx.fill();
+        ctx.save();
+        ctx.clip();
+        ctx.drawImage(photoImg, cx - photoR, cy - photoR, photoR * 2, photoR * 2);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = "#8A5A12";
+        ctx.fill();
+        ctx.fillStyle = "#F4EBD6";
+        ctx.font = "700 100px Work Sans, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(initialsOf(member.name), cx, cy + 6);
+      }
       ctx.lineWidth = 8;
       ctx.strokeStyle = GOLD;
       ctx.stroke();
@@ -595,10 +620,15 @@ function FlyerTab({ members }) {
       ctx.fillText("With love from your Agona Abusua Adoagyiri family", size / 2, size - 70);
     };
 
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => draw(img);
-    img.src = member.photo_url;
+    if (member.photo_url) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => draw(img);
+      img.onerror = () => draw(null);
+      img.src = member.photo_url;
+    } else {
+      draw(null);
+    }
   }, [member]);
 
   const download = () => {
@@ -609,7 +639,7 @@ function FlyerTab({ members }) {
       link.href = canvasRef.current.toDataURL("image/png");
       link.click();
     } catch {
-      // Canvas may be tainted if the storage bucket isn't public; the README covers this.
+      // Canvas may be tainted if the storage bucket isn't public.
     }
   };
 
@@ -631,35 +661,51 @@ function FlyerTab({ members }) {
         </select>
       </Field>
       <div style={{ display: "flex", justifyContent: "center", margin: "14px 0" }}>
-        <canvas ref={canvasRef} style={{ width: "100%", maxWidth: 420, borderRadius: 4, border: `1px solid ${GOLD}` }} />
+        <canvas ref={canvasRef} style={{ width: "100%", maxWidth: 420, borderRadius: 6, border: `1px solid ${GOLD}`, boxShadow: "0 6px 18px rgba(60,20,20,0.25)" }} />
       </div>
       <button style={btnPrimary} onClick={download}>Download flyer</button>
     </Section>
   );
 }
 
-/* ---------- Admin ---------- */
-function AdminTab({ members, donations, dues, refresh, showToast }) {
-  const [pin, setPin] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
-  const [checking, setChecking] = useState(false);
+/* ---------- Admin (login required) ---------- */
+function AdminTab({ members, donations, dues, refresh, showToast, isAdmin, setIsAdmin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
 
-  const submitPin = async (e) => {
+  const [importPreview, setImportPreview] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(null);
+  const fileRef = useRef(null);
+
+  const login = async (e) => {
     e.preventDefault();
-    setChecking(true);
+    setLoggingIn(true);
     try {
-      const ok = await checkAdminPin(pin);
-      if (ok) setUnlocked(true);
-      else showToast("Incorrect admin code.");
-    } catch {
-      showToast("Could not check the admin code. Try again.");
+      await signInAdmin(email, password);
+      const ok = await hasAdminSession();
+      if (ok) {
+        setIsAdmin(true);
+        showToast("Welcome back.");
+      } else {
+        await signOutAdmin();
+        showToast("This account is not registered as an admin.");
+      }
+    } catch (err) {
+      showToast("Sign-in failed. Check the email and password.");
     }
-    setChecking(false);
+    setLoggingIn(false);
+  };
+
+  const logout = async () => {
+    await signOutAdmin();
+    setIsAdmin(false);
   };
 
   const verify = async (kind, record, status) => {
     try {
-      await verifyPayment(kind, record.id, status, pin);
+      await verifyPayment(kind, record.id, status);
       showToast(`Marked ${status}.`);
       refresh();
     } catch {
@@ -667,15 +713,44 @@ function AdminTab({ members, donations, dues, refresh, showToast }) {
     }
   };
 
-  if (!unlocked) {
+  const handleFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const result = await parseMembersSpreadsheet(file);
+      setImportPreview(result);
+    } catch {
+      showToast("Could not read that file. Use a .xlsx, .xls or .csv file.");
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview || importPreview.valid.length === 0) return;
+    setImporting(true);
+    setImportProgress({ done: 0, total: importPreview.valid.length });
+    const result = await importMembers(importPreview.valid, (done, total) => setImportProgress({ done, total }));
+    setImporting(false);
+    setImportProgress(null);
+    setImportPreview(null);
+    if (fileRef.current) fileRef.current.value = "";
+    showToast(`Imported ${result.imported} member${result.imported === 1 ? "" : "s"}.${result.failures.length ? ` ${result.failures.length} failed.` : ""}`);
+    refresh();
+  };
+
+  if (!isAdmin) {
     return (
       <Section title="Admin sign-in">
         <p style={{ fontSize: 13, color: "#5A4A2E", marginTop: -6, marginBottom: 16 }}>
-          Enter the family officers' admin code to verify payments. This is checked on the server against the ADMIN_SECRET set in your deployment, not stored in the app itself.
+          Sign in with your family officer account to verify payments, bulk-import members, and export reports.
         </p>
-        <form onSubmit={submitPin} style={{ display: "flex", gap: 8 }}>
-          <input type="password" style={inputStyle} value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Admin code" />
-          <button type="submit" style={btnPrimary} disabled={checking}>{checking ? "Checking…" : "Unlock"}</button>
+        <form onSubmit={login}>
+          <Field label="Email" required>
+            <input type="email" style={inputStyle} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="officer@example.com" />
+          </Field>
+          <Field label="Password" required>
+            <input type="password" style={inputStyle} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+          </Field>
+          <button type="submit" style={btnPrimary} disabled={loggingIn}>{loggingIn ? "Signing in…" : "Sign in"}</button>
         </form>
       </Section>
     );
@@ -687,13 +762,57 @@ function AdminTab({ members, donations, dues, refresh, showToast }) {
 
   return (
     <>
-      <Section title="Overview">
+      <Section title="Overview" right={<button style={{ ...btnGhost, padding: "5px 10px", fontSize: 12 }} onClick={logout}>Sign out</button>}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <Stat label="Members" value={members.length} />
           <Stat label="Pending verification" value={pendingCount} />
           <Stat label="Donations verified" value={fmtGHS(verifiedDonations)} />
           <Stat label="Dues verified" value={fmtGHS(verifiedDues)} />
         </div>
+      </Section>
+
+      <Section title="Bulk-import members (Excel)">
+        <p style={{ fontSize: 13, color: "#5A4A2E", marginTop: -6, marginBottom: 12 }}>
+          Upload a spreadsheet with columns Name, Phone, Gender, DOB, Residence, Role. Imported members won't have a photo yet — they (or an admin) can add one later.
+        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <button style={btnGhost} onClick={downloadMemberTemplate}>Download template</button>
+        </div>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} style={{ fontSize: 13, marginBottom: 10 }} />
+
+        {importPreview && (
+          <div style={{ background: "#fff", border: "1px solid #E0D4AE", borderRadius: 4, padding: 12, marginTop: 8 }}>
+            <p style={{ fontSize: 13, margin: "0 0 8px", color: INK }}>
+              {importPreview.total} row{importPreview.total === 1 ? "" : "s"} found — <strong style={{ color: GREEN }}>{importPreview.valid.length} ready to import</strong>
+              {importPreview.skipped.length > 0 && <>, <strong style={{ color: "#A32D2D" }}>{importPreview.skipped.length} skipped</strong></>}
+            </p>
+            {importPreview.skipped.length > 0 && (
+              <ul style={{ fontSize: 12, color: "#8A7A50", margin: "0 0 10px", paddingLeft: 18 }}>
+                {importPreview.skipped.slice(0, 5).map((s, i) => (
+                  <li key={i}>Row {s.row}: {s.reason}</li>
+                ))}
+                {importPreview.skipped.length > 5 && <li>…and {importPreview.skipped.length - 5} more</li>}
+              </ul>
+            )}
+            {importing ? (
+              <p style={{ fontSize: 13, color: MAROON }}>Importing {importProgress?.done || 0} of {importProgress?.total || 0}…</p>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={btnPrimary} onClick={confirmImport} disabled={importPreview.valid.length === 0}>
+                  Import {importPreview.valid.length} member{importPreview.valid.length === 1 ? "" : "s"}
+                </button>
+                <button style={btnGhost} onClick={() => { setImportPreview(null); if (fileRef.current) fileRef.current.value = ""; }}>Cancel</button>
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Export reports">
+        <p style={{ fontSize: 13, color: "#5A4A2E", marginTop: -6, marginBottom: 12 }}>
+          Download every member, donation and dues record as an Excel workbook (one sheet each).
+        </p>
+        <button style={btnPrimary} onClick={() => exportReportToExcel(members, donations, dues)}>Download Excel report</button>
       </Section>
 
       <Section title="Donations">
@@ -711,7 +830,7 @@ function AdminTab({ members, donations, dues, refresh, showToast }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {members.map((m) => (
               <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "1px solid #E0D4AE", borderRadius: 4, padding: "8px 10px" }}>
-                <img src={m.photo_url} alt={m.name} style={{ width: 38, height: 38, borderRadius: "50%", objectFit: "cover", border: `1px solid ${GOLD}` }} />
+                <Avatar name={m.name} url={m.photo_url} size={38} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13, color: INK }}>{m.name} <span style={{ color: "#8A7A50", fontWeight: 400 }}>· {m.member_no}</span></div>
                   <div style={{ fontSize: 12, color: "#5A4A2E" }}>{m.phone} {m.residence ? "· " + m.residence : ""}</div>
